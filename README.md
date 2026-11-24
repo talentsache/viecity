@@ -188,6 +188,8 @@ The rest of the tree is chiaki-ng as it is upstream, so their fixes can be merge
 
 AGPL-3.0-only with the OpenSSL exception, the same as chiaki-ng. See [COPYING](COPYING) and [LICENSES](LICENSES). If you pass on a changed version, you have to pass on its source too.
 
+The **Vie City** name, logo and artwork are not part of that licence. They are © talentsache, all rights reserved. See [branding/LICENSE.md](branding/LICENSE.md). If you publish a fork under your own name, bring your own branding.
+
 ## ⚠️ Disclaimer
 
 VIE City VR is a free fan project. It is not affiliated with or endorsed by Sony Interactive Entertainment, Rockstar Games, Take-Two Interactive or Meta. PlayStation, PS5, DualSense, Grand Theft Auto, GTA VI, Vice City, Meta Quest and all related names belong to their owners and are used here only to say what the app works with. The project contains no game files, artwork or code from any of them.

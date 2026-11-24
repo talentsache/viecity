@@ -3,6 +3,11 @@
 package com.metallic.chiaki.vr
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -45,6 +50,41 @@ class VrStreamActivity : Activity()
 	private val mainHandler = Handler(Looper.getMainLooper())
 	private val mapper = VrInputMapper()
 
+	/**
+	 * Stellschrauben von außen, zum Einstellen am Kabel ohne Neubau:
+	 * adb shell am broadcast -a com.talentsache.viecity.TUNE --es macro "U:120,_:900,O:70"
+	 * Weitere Felder: speed, dead, min, smooth (Kopf-Kamera), radius, angle, height (Leinwand).
+	 */
+	private val tuneReceiver = object: BroadcastReceiver() {
+		override fun onReceive(context: Context, intent: Intent)
+		{
+			intent.getStringExtra("macro")?.let {
+				val steps = ButtonMacro.parse(it)
+				Log.i(TAG, "Tastenfolge von außen: ${steps.size} Schritte")
+				mapper.macro.start(steps, System.nanoTime())
+			}
+			val t = mapper.tuning
+			intent.getStringExtra("speed")?.toFloatOrNull()?.let { t.fullStickDegPerSec = it }
+			intent.getStringExtra("dead")?.toFloatOrNull()?.let { t.deadDegPerSec = it }
+			intent.getStringExtra("min")?.toFloatOrNull()?.let { t.minStick = it }
+			intent.getStringExtra("smooth")?.toFloatOrNull()?.let { t.smoothing = it }
+			val radius = intent.getStringExtra("radius")?.toFloatOrNull()
+			val angle = intent.getStringExtra("angle")?.toFloatOrNull()
+			val height = intent.getStringExtra("height")?.toFloatOrNull()
+			if(radius != null || angle != null || height != null)
+			{
+				screenRadius = radius ?: screenRadius
+				screenAngle = angle ?: screenAngle
+				screenHeight = height ?: screenHeight
+				XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
+			}
+			Log.i(TAG, "Einstellung: $t Leinwand $screenRadius $screenAngle $screenHeight")
+		}
+	}
+	private var screenRadius = 2.6f
+	private var screenAngle = 1.75f
+	private var screenHeight = 0f
+
 	@Volatile private var session: Session? = null
 	@Volatile private var surface: Surface? = null
 	private var xrStarted = false
@@ -84,6 +124,7 @@ class VrStreamActivity : Activity()
 
 		XrBridge.nativeStart(this)
 		xrStarted = true
+		ContextCompat.registerReceiver(this, tuneReceiver, IntentFilter("com.talentsache.viecity.TUNE"), ContextCompat.RECEIVER_EXPORTED)
 	}
 
 	override fun onDestroy()
@@ -95,6 +136,7 @@ class VrStreamActivity : Activity()
 		if(xrStarted)
 		{
 			xrStarted = false
+			unregisterReceiver(tuneReceiver)
 			XrBridge.nativeStop()
 		}
 		closing?.stop()

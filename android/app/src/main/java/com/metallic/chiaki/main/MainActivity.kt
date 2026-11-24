@@ -183,7 +183,7 @@ class MainActivity : AppCompatActivity()
 			fun connect() {
 				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
 				// Auf einem VR-Headset läuft der Stream auf der Leinwand im Raum.
-				val target = if(packageManager.hasSystemFeature("android.hardware.vr.headtracking"))
+				val target = if(packageManager.hasSystemFeature("oculus.hardware.standalone_vr") || packageManager.hasSystemFeature("android.hardware.vr.headtracking"))
 					VrStreamActivity::class.java
 				else
 					StreamActivity::class.java

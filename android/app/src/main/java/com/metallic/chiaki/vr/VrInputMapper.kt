@@ -83,11 +83,14 @@ data class VrTuning(
  *  Menü kurz                -> Options
  *  Menü halten + l. Stick   -> Steuerkreuz
  *  Menü halten + r. Klick   -> Touchpad
- *  Menü halten + l. Klick   -> Leinwand neu ausrichten
- *  Menü halten + Y          -> Share (Create)
+ *  Menü halten + A          -> Ego-Sicht-Tastenfolge
  *  Menü halten + B          -> PS-Taste
- *  Menü halten + A          -> Kopf-Kamera an/aus
- *  Menü halten + X          -> Ego-Sicht-Tastenfolge
+ *  Menü halten + r. Trigger -> Leinwand neu ausrichten
+ *  Menü halten + r. Griff   -> Kopf-Kamera an/aus
+ *  Menü halten + l. Griff   -> Share (Create)
+ *
+ * Die Menü-Taste liegt unter dem linken Daumen, deshalb liegen alle
+ * Kombinationen auf der rechten Hand oder auf den Fingern der linken.
  */
 class VrInputMapper(val tuning: VrTuning = VrTuning())
 {
@@ -106,6 +109,8 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 	private var menuUsedAsModifier = false
 	private var optionsUntilNs = 0L
 	private var lastButtons = 0
+	private var comboTriggerWasDown = false
+	private var comboGripWasDown = false
 
 	fun map(frame: XrFrame, nowNs: Long): ControllerState
 	{
@@ -143,16 +148,19 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 			lx = 0f
 			ly = 0f
 			if(frame.pressed(XrFrame.BTN_RSTICK)) { buttons = buttons or ControllerState.BUTTON_TOUCHPAD; menuUsedAsModifier = true }
-			if(frame.pressed(XrFrame.BTN_Y)) { buttons = buttons or ControllerState.BUTTON_SHARE; menuUsedAsModifier = true }
 			if(frame.pressed(XrFrame.BTN_B)) { buttons = buttons or ControllerState.BUTTON_PS; menuUsedAsModifier = true }
-			if(justPressed and XrFrame.BTN_LSTICK != 0) { onRecenter?.invoke(); menuUsedAsModifier = true }
-			if(justPressed and XrFrame.BTN_A != 0)
+			val rightTriggerDown = frame.rightTrigger > 0.6f
+			val rightGripDown = frame.rightGrip > 0.6f
+			if(rightTriggerDown && !comboTriggerWasDown) { onRecenter?.invoke(); menuUsedAsModifier = true }
+			if(rightGripDown && !comboGripWasDown)
 			{
 				tuning.headLook = !tuning.headLook
 				onNotice?.invoke(if(tuning.headLook) "Kopf-Kamera an" else "Kopf-Kamera aus")
 				menuUsedAsModifier = true
 			}
-			if(justPressed and XrFrame.BTN_X != 0)
+			comboTriggerWasDown = rightTriggerDown
+			comboGripWasDown = rightGripDown
+			if(justPressed and XrFrame.BTN_A != 0)
 			{
 				macro.start(ButtonMacro.egoView(), nowNs)
 				onNotice?.invoke("Ego-Sicht wird versucht")
@@ -168,12 +176,22 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 			if(frame.pressed(XrFrame.BTN_LSTICK)) buttons = buttons or ControllerState.BUTTON_L3
 			if(frame.pressed(XrFrame.BTN_RSTICK)) buttons = buttons or ControllerState.BUTTON_R3
 		}
-		if(frame.leftGrip > 0.6f) buttons = buttons or ControllerState.BUTTON_L1
-		if(frame.rightGrip > 0.6f) buttons = buttons or ControllerState.BUTTON_R1
+		if(menu)
+		{
+			// Mit gehaltener Menü-Taste sind Griffe und rechter Trigger Kombinationen, keine Spieltasten.
+			if(frame.leftGrip > 0.6f) { buttons = buttons or ControllerState.BUTTON_SHARE; menuUsedAsModifier = true }
+		}
+		else
+		{
+			comboTriggerWasDown = false
+			comboGripWasDown = false
+			if(frame.leftGrip > 0.6f) buttons = buttons or ControllerState.BUTTON_L1
+			if(frame.rightGrip > 0.6f) buttons = buttons or ControllerState.BUTTON_R1
+		}
 
 		state.buttons = state.buttons or buttons or macro.buttons(nowNs)
 		state.l2State = (frame.leftTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
-		state.r2State = (frame.rightTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
+		state.r2State = if(menu) 0U else (frame.rightTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
 		state.leftX = stick(lx)
 		state.leftY = stick(ly)
 
@@ -241,12 +259,14 @@ class ButtonMacro
 
 	val running get() = steps.isNotEmpty()
 
+	@Synchronized
 	fun start(steps: List<Step>, nowNs: Long)
 	{
 		this.steps = steps
 		startNs = nowNs
 	}
 
+	@Synchronized
 	fun buttons(nowNs: Long): UInt
 	{
 		if(steps.isEmpty())
@@ -265,23 +285,49 @@ class ButtonMacro
 	companion object
 	{
 		/**
-		 * Ego-Sicht in GTA 6, Stand 23.11.2026: im Auto das Handy holen (Steuerkreuz hoch),
-		 * mit Kreis wegstecken und sofort mehrmals die Kamerataste drücken.
-		 * Voraussetzung im Spiel: Touchpad-Taste von "Karte" auf "Kamera" gelegt.
-		 * Der Takt ist eng, die Zeiten hier sind ein erster Ansatz zum Nachstellen.
+		 * Liest eine Tastenfolge aus Text, zum Nachstellen des Takts ohne Neubau.
+		 * Form: "U:120,_:900,O:70,T:45,_:45". Buchstaben lassen sich kombinieren ("OT:60").
+		 * U D L R Steuerkreuz, X Kreuz, O Kreis, S Quadrat, Y Dreieck, T Touchpad,
+		 * P Options, 1 L1, 2 R1, _ nichts.
 		 */
-		fun egoView(phoneWaitMs: Int = 900, tapMs: Int = 45, gapMs: Int = 45, taps: Int = 8): List<Step>
-		{
-			val list = mutableListOf(
-				Step(ControllerState.BUTTON_DPAD_UP, 120),
-				Step(0U, phoneWaitMs),
-				Step(ControllerState.BUTTON_MOON, 70)
-			)
-			repeat(taps) {
-				list += Step(ControllerState.BUTTON_TOUCHPAD, tapMs)
-				list += Step(0U, gapMs)
-			}
-			return list
+		fun parse(spec: String): List<Step> = spec.split(",").mapNotNull { part ->
+			val pieces = part.trim().split(":")
+			val ms = pieces.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+			var buttons = 0U
+			for(c in pieces[0])
+				buttons = buttons or when(c)
+				{
+					'U' -> ControllerState.BUTTON_DPAD_UP
+					'D' -> ControllerState.BUTTON_DPAD_DOWN
+					'L' -> ControllerState.BUTTON_DPAD_LEFT
+					'R' -> ControllerState.BUTTON_DPAD_RIGHT
+					'X' -> ControllerState.BUTTON_CROSS
+					'O' -> ControllerState.BUTTON_MOON
+					'S' -> ControllerState.BUTTON_BOX
+					'Y' -> ControllerState.BUTTON_PYRAMID
+					'T' -> ControllerState.BUTTON_TOUCHPAD
+					'P' -> ControllerState.BUTTON_OPTIONS
+					'1' -> ControllerState.BUTTON_L1
+					'2' -> ControllerState.BUTTON_R1
+					else -> 0U
+				}
+			Step(buttons, ms)
 		}
+
+		/**
+		 * Ego-Sicht in GTA 6, Stand 24.11.2026: im Auto das Handy holen (Steuerkreuz hoch),
+		 * mit Kreis wegstecken und genau beim Wegstecken einmal die Kamerataste drücken.
+		 * Voraussetzung im Spiel: Touchpad-Taste von "Karte" auf "Kamera" gelegt.
+		 *
+		 * Am Spiel ausgemessen: Die Kamerataste muss 150 ms nach Beginn des Kreis-Drucks kommen.
+		 * Gleichzeitig mit Kreis ist zu früh, Dauerfeuer auf der Kamerataste verfehlt das Fenster.
+		 */
+		fun egoView(phoneWaitMs: Int = 1800, circleMs: Int = 100, gapMs: Int = 50, cameraMs: Int = 80): List<Step> = listOf(
+			Step(ControllerState.BUTTON_DPAD_UP, 150),
+			Step(0U, phoneWaitMs),
+			Step(ControllerState.BUTTON_MOON, circleMs),
+			Step(0U, gapMs),
+			Step(ControllerState.BUTTON_TOUCHPAD, cameraMs)
+		)
 	}
 }

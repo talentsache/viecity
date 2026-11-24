@@ -255,6 +255,7 @@ bool initXr(App &app, JNIEnv *env)
 		XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
 		XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME,
 		XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME,
+		XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME,
 	};
 	XrInstanceCreateInfoAndroidKHR androidInfo = {XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
 	androidInfo.applicationVM = app.vm;
@@ -535,7 +536,11 @@ void threadMain(App *appPtr)
 			env->ExceptionClear();
 		}
 
+		// Bilder aus einer Android-Surface stehen auf der Quest sonst auf dem Kopf.
+		XrCompositionLayerImageLayoutFB layout = {XR_TYPE_COMPOSITION_LAYER_IMAGE_LAYOUT_FB};
+		layout.flags = XR_COMPOSITION_LAYER_IMAGE_LAYOUT_VERTICAL_FLIP_BIT_FB;
 		XrCompositionLayerCylinderKHR cylinder = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
+		cylinder.next = &layout;
 		cylinder.space = app.screenSpace;
 		cylinder.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		cylinder.subImage.swapchain = app.videoSwapchain;

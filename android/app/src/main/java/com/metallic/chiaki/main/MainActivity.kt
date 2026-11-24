@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity()
 		viewModel.displayHosts.observe(this, Observer {
 			val top = binding.hostsRecyclerView.computeVerticalScrollOffset() == 0
 			recyclerViewAdapter.hosts = it
+			quickStart(it)
 			if(top)
 				binding.hostsRecyclerView.scrollToPosition(0)
 			updateEmptyInfo()
@@ -76,6 +77,26 @@ class MainActivity : AppCompatActivity()
 			discoveryMenuItem?.let { updateDiscoveryMenuItem(it, active) }
 			updateEmptyInfo()
 		})
+	}
+
+	private var quickStartDone = false
+
+	/**
+	 * Schnellstart: Ist genau eine gekoppelte Konsole da und wach, verbindet die App
+	 * beim Öffnen von selbst. Nur einmal je Start, danach bleibt die Liste stehen.
+	 */
+	private fun quickStart(hosts: List<DisplayHost>)
+	{
+		if(quickStartDone || !Preferences(this).quickStart)
+			return
+		val registered = hosts.filter { it.isRegistered }
+		if(registered.size != 1)
+			return
+		val host = registered[0]
+		if(host is DiscoveredDisplayHost && host.discoveredHost.state != DiscoveryHost.State.READY)
+			return
+		quickStartDone = true
+		hostTriggered(host)
 	}
 
 	private fun updateEmptyInfo()

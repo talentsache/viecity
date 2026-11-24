@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ruhiger Hintergrund der App: Nachtviolett mit einem Rest Abendrot am unteren Rand -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#120628"
+        android:centerColor="#22093F"
+        android:centerY="0.7"
+        android:endColor="#5A1560" />
+</shape>

@@ -33,6 +33,7 @@ object XrBridge
 	external fun nativeHaptic(hand: Int, amplitude: Float, durationMs: Int)
 	external fun nativeRecenter()
 	external fun nativeSetScreen(radius: Float, angle: Float, height: Float)
+	external fun nativeSetFollow(follow: Boolean, tau: Float)
 }
 
 /**
@@ -53,7 +54,8 @@ class VrStreamActivity : Activity()
 	/**
 	 * Stellschrauben von außen, zum Einstellen am Kabel ohne Neubau:
 	 * adb shell am broadcast -a com.talentsache.viecity.TUNE --es macro "U:120,_:900,O:70"
-	 * Weitere Felder: speed, dead, min, smooth (Kopf-Kamera), radius, angle, height (Leinwand).
+	 * Weitere Felder: speed, dead, min, smooth (Kopf-Kamera), radius, angle, height (Leinwand),
+	 * follow 0/1 und tau (Leinwand folgt dem Kopf, Trägheit in Sekunden).
 	 */
 	private val tuneReceiver = object: BroadcastReceiver() {
 		override fun onReceive(context: Context, intent: Intent)
@@ -78,12 +80,18 @@ class VrStreamActivity : Activity()
 				screenHeight = height ?: screenHeight
 				XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
 			}
+			intent.getStringExtra("tau")?.toFloatOrNull()?.let {
+				followTau = it
+				XrBridge.nativeSetFollow(t.headLook, followTau)
+			}
+			intent.getStringExtra("follow")?.let { XrBridge.nativeSetFollow(it == "1", followTau) }
 			Log.i(TAG, "Einstellung: $t Leinwand $screenRadius $screenAngle $screenHeight")
 		}
 	}
-	private var screenRadius = 2.6f
-	private var screenAngle = 1.75f
+	private var screenRadius = 2.0f
+	private var screenAngle = 2.2f
 	private var screenHeight = 0f
+	private var followTau = 0.10f
 
 	@Volatile private var session: Session? = null
 	@Volatile private var surface: Surface? = null
@@ -105,6 +113,8 @@ class VrStreamActivity : Activity()
 		mapper.onNotice = { text ->
 			Log.i(TAG, text)
 			XrBridge.nativeHaptic(0, 0.4f, 60)
+			// Mit Kopf-Kamera folgt die Leinwand dem Kopf, ohne steht sie fest im Raum.
+			XrBridge.nativeSetFollow(mapper.tuning.headLook, followTau)
 		}
 
 		try

@@ -55,9 +55,17 @@ const int kVideoWidth = 1920;
 const int kVideoHeight = 1080;
 
 struct Screen {
-	std::atomic<float> radius{2.6f};       // Meter
-	std::atomic<float> angle{1.75f};       // Bogen in Radiant, etwa 100 Grad
-	std::atomic<float> height{0.0f};       // Höhe der Mitte gegenüber dem Kopf beim Start
+	std::atomic<float> radius{2.0f};       // Meter
+	std::atomic<float> angle{2.2f};        // Bogen in Radiant, etwa 126 Grad
+	std::atomic<float> height{0.0f};       // Höhe der Mitte gegenüber dem Kopf
+	// Leinwand folgt dem Kopf. Mit Kopf-Kamera bleibt das Bild so vor den Augen,
+	// statt dass man aus der Leinwand herausschaut.
+	std::atomic<bool> follow{true};
+	std::atomic<float> followTau{0.10f};   // Sekunden, kleiner = straffer
+	// Lage im LOCAL-Raum, nur vom XR-Thread benutzt
+	float yaw = 0.0f, pitch = 0.0f;
+	float pos[3] = {0.0f, 0.0f, 0.0f};
+	XrTime lastTime = 0;
 };
 
 struct Haptic {
@@ -89,7 +97,6 @@ struct App {
 	XrSession session = XR_NULL_HANDLE;
 	XrSpace localSpace = XR_NULL_HANDLE;
 	XrSpace viewSpace = XR_NULL_HANDLE;
-	XrSpace screenSpace = XR_NULL_HANDLE;
 	XrSwapchain videoSwapchain = XR_NULL_HANDLE;
 	jobject videoSurface = nullptr;
 	bool sessionRunning = false;
@@ -297,9 +304,6 @@ bool initXr(App &app, JNIEnv *env)
 	spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
 	if(!check(xrCreateReferenceSpace(app.session, &spaceInfo, &app.localSpace), "LOCAL"))
 		return false;
-	// Die Leinwand hängt an einem eigenen Raum, damit "neu ausrichten" nur sie versetzt.
-	if(!check(xrCreateReferenceSpace(app.session, &spaceInfo, &app.screenSpace), "SCREEN"))
-		return false;
 	spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
 	if(!check(xrCreateReferenceSpace(app.session, &spaceInfo, &app.viewSpace), "VIEW"))
 		return false;
@@ -421,29 +425,45 @@ void applyHaptics(App &app)
 	}
 }
 
-// Setzt die Leinwand neu vor den Kopf: gleiche Höhe, nur um die Hochachse gedreht.
-void recenterScreen(App &app, const float *headQuat, const float *headPos)
+void headAngles(const float *q, float &yaw, float &pitch)
 {
-	float x = headQuat[0], y = headQuat[1], z = headQuat[2], w = headQuat[3];
+	float x = q[0], y = q[1], z = q[2], w = q[3];
 	// Blickrichtung = q * (0, 0, -1)
 	float fx = -(2.0f * (x * z + w * y));
+	float fy = -(2.0f * (y * z - w * x));
 	float fz = -(1.0f - 2.0f * (x * x + y * y));
-	float yaw = atan2f(-fx, -fz);
+	yaw = atan2f(-fx, -fz);
+	pitch = asinf(fy > 1.0f ? 1.0f : (fy < -1.0f ? -1.0f : fy));
+}
 
-	XrReferenceSpaceCreateInfo info = {XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-	info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-	info.poseInReferenceSpace.orientation.y = sinf(yaw * 0.5f);
-	info.poseInReferenceSpace.orientation.w = cosf(yaw * 0.5f);
-	info.poseInReferenceSpace.position.x = headPos[0];
-	info.poseInReferenceSpace.position.y = headPos[1];
-	info.poseInReferenceSpace.position.z = headPos[2];
-	XrSpace space = XR_NULL_HANDLE;
-	if(XR_SUCCEEDED(xrCreateReferenceSpace(app.session, &info, &space)))
+// Führt die Leinwand: beim Ausrichten sofort vor den Kopf, im Folge-Modus weich hinterher.
+void updateScreen(App &app, const float *headQuat, const float *headPos, XrTime time, bool snap)
+{
+	Screen &sc = app.screen;
+	float yaw, pitch;
+	headAngles(headQuat, yaw, pitch);
+	float dt = sc.lastTime ? (float)((double)(time - sc.lastTime) / 1e9) : 0.0f;
+	sc.lastTime = time;
+
+	if(snap)
 	{
-		if(app.screenSpace != XR_NULL_HANDLE)
-			xrDestroySpace(app.screenSpace);
-		app.screenSpace = space;
+		sc.yaw = yaw;
+		sc.pitch = sc.follow ? pitch : 0.0f;
+		memcpy(sc.pos, headPos, sizeof(sc.pos));
+		return;
 	}
+	if(!sc.follow)
+		return;
+
+	float tau = sc.followTau.load();
+	float k = (tau <= 0.001f || dt <= 0.0f) ? 1.0f : 1.0f - expf(-dt / tau);
+	float dYaw = yaw - sc.yaw;
+	while(dYaw > (float)M_PI) dYaw -= 2.0f * (float)M_PI;
+	while(dYaw < -(float)M_PI) dYaw += 2.0f * (float)M_PI;
+	sc.yaw += dYaw * k;
+	sc.pitch += (pitch - sc.pitch) * k;
+	for(int i = 0; i < 3; i++)
+		sc.pos[i] += (headPos[i] - sc.pos[i]) * k;
 }
 
 void handleEvents(App &app, bool &exitLoop)
@@ -523,11 +543,8 @@ void threadMain(App *appPtr)
 
 		readInput(app, frameState.predictedDisplayTime, f);
 		applyHaptics(app);
-		if(app.recenterRequested && ((int)f[F_VALID] & VALID_HEAD))
-		{
-			app.recenterRequested = false;
-			recenterScreen(app, f + F_HEAD_QUAT, f + F_HEAD_POS);
-		}
+		if((int)f[F_VALID] & VALID_HEAD)
+			updateScreen(app, f + F_HEAD_QUAT, f + F_HEAD_POS, frameState.predictedDisplayTime, app.recenterRequested.exchange(false));
 		env->SetFloatArrayRegion(frameArray, 0, F_COUNT, f);
 		env->CallVoidMethod(app.activity, app.onFrame, frameArray);
 		if(env->ExceptionCheck())
@@ -541,13 +558,23 @@ void threadMain(App *appPtr)
 		layout.flags = XR_COMPOSITION_LAYER_IMAGE_LAYOUT_VERTICAL_FLIP_BIT_FB;
 		XrCompositionLayerCylinderKHR cylinder = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
 		cylinder.next = &layout;
-		cylinder.space = app.screenSpace;
+		cylinder.space = app.localSpace;
 		cylinder.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		cylinder.subImage.swapchain = app.videoSwapchain;
 		cylinder.subImage.imageRect.extent.width = kVideoWidth;
 		cylinder.subImage.imageRect.extent.height = kVideoHeight;
-		cylinder.pose.orientation.w = 1.0f;
-		cylinder.pose.position.y = app.screen.height.load();
+		{
+			// Erst um die Hochachse drehen, dann neigen.
+			float sy = sinf(app.screen.yaw * 0.5f), cy = cosf(app.screen.yaw * 0.5f);
+			float sx = sinf(app.screen.pitch * 0.5f), cx = cosf(app.screen.pitch * 0.5f);
+			cylinder.pose.orientation.x = cy * sx;
+			cylinder.pose.orientation.y = sy * cx;
+			cylinder.pose.orientation.z = -sy * sx;
+			cylinder.pose.orientation.w = cy * cx;
+		}
+		cylinder.pose.position.x = app.screen.pos[0];
+		cylinder.pose.position.y = app.screen.pos[1] + app.screen.height.load();
+		cylinder.pose.position.z = app.screen.pos[2];
 		cylinder.radius = app.screen.radius.load();
 		cylinder.centralAngle = app.screen.angle.load();
 		cylinder.aspectRatio = (float)kVideoWidth / (float)kVideoHeight;
@@ -624,6 +651,16 @@ JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeRecenter(JNIEn
 {
 	if(g_app)
 		g_app->recenterRequested = true;
+}
+
+JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeSetFollow(JNIEnv *, jobject, jboolean follow, jfloat tau)
+{
+	if(!g_app)
+		return;
+	g_app->screen.follow = follow;
+	g_app->screen.followTau = tau;
+	// Beim Umschalten einmal sauber vor den Kopf setzen.
+	g_app->recenterRequested = true;
 }
 
 JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeSetScreen(JNIEnv *, jobject, jfloat radius, jfloat angle, jfloat height)

@@ -64,13 +64,13 @@ data class VrTuning(
 	/** Beim Zielen (linker Trigger) steuert die rechte Hand statt des Kopfs. */
 	var handAim: Boolean = true,
 	/** Drehgeschwindigkeit in Grad je Sekunde, die vollem Stick-Ausschlag entspricht. */
-	var fullStickDegPerSec: Float = 220f,
+	var fullStickDegPerSec: Float = 110f,
 	/** Kleinste Drehung in Grad je Sekunde, die überhaupt wirkt. Hält die Kamera bei ruhigem Kopf still. */
 	var deadDegPerSec: Float = 2.5f,
 	/** Mindest-Ausschlag, damit die tote Zone des Spiels übersprungen wird. */
-	var minStick: Float = 0.22f,
+	var minStick: Float = 0.30f,
 	/** Glättung der Drehgeschwindigkeit, 0 = keine, nah an 1 = träge. */
-	var smoothing: Float = 0.35f
+	var smoothing: Float = 0.25f
 )
 
 /**

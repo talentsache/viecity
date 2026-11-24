@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Chiaki</string>
-    <string name="title_main">Chiaki 千秋</string>
+    <string name="app_name">VIE City VR</string>
+    <string name="title_main">VIE City VR</string>
     <string name="title_settings">Settings</string>
     <string name="alert_message_standby_wakeup">The Console is currently in standby mode. Do you want to send a Wakeup packet instead of trying to connect immediately?</string>
     <string name="alert_message_session_quit">Session has quit: %s</string>
@@ -33,7 +33,12 @@
     <string name="regist_option_ps4_ge_7">PS4 ≥ 7.0, &lt; 8</string>
     <string name="regist_option_ps4_ge_8">PS4 ≥ 8.0</string>
     <string name="regist_option_ps5">PS5</string>
-    <string name="regist_psn_account_id_help">About obtaining your Account ID, see</string>
+    <string name="regist_psn_account_id_help">Your Account ID is not your username. Sign in once and it is filled in for you.</string>
+    <string name="regist_psn_login_button">Sign in with PlayStation</string>
+    <string name="regist_psn_login_failed">Could not read the Account ID. Please try again.</string>
+    <string name="preferences_quick_start_title">Quick start</string>
+    <string name="preferences_quick_start_summary">Connect to your console right away when the app opens</string>
+    <string name="preferences_quick_start_key">quick_start</string>
     <string name="regist_psn_account_id_help_url">https://git.sr.ht/~thestr4ng3r/chiaki/tree/master/item/README.md#obtaining-your-psn-accountid</string>
     <string name="hint_regist_psn_online_id">PSN Online ID (username, case-sensitive)</string>
     <string name="hint_regist_psn_account_id">PSN Account ID (8 bytes, base64)</string>

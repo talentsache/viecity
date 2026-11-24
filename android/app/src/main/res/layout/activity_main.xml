@@ -152,14 +152,15 @@
             app:layout_scrollFlags="scroll|enterAlways"
             android:theme="@style/AppTheme.Toolbar">
 
-            <androidx.appcompat.widget.AppCompatTextView
+            <ImageView
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="44dp"
                 android:layout_gravity="center"
-                android:fontFamily="sans-serif-condensed"
-                android:text="@string/title_main"
-                android:textColor="?attr/colorOnPrimary"
-                android:textSize="20dp" />
+                android:adjustViewBounds="true"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:contentDescription="@string/title_main"
+                android:src="@drawable/viecity_logo" />
 
         </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>

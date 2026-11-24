@@ -25,15 +25,15 @@
         android:gravity="center_horizontal">
         <ImageView
             android:id="@+id/emptyInfoImageView"
-            android:layout_width="wrap_content"
+            android:layout_width="220dp"
             android:layout_height="wrap_content"
-            android:src="@drawable/ic_discover_off"
+            android:adjustViewBounds="true"
+            android:src="@drawable/viecity_original"
             app:layout_constraintLeft_toLeftOf="parent"
             app:layout_constraintRight_toRightOf="parent"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintBottom_toTopOf="@id/emptyInfoTextView"
-            app:layout_constraintVertical_chainStyle="packed"
-            android:alpha="0.5"/>
+            app:layout_constraintVertical_chainStyle="packed"/>
 
         <com.google.android.material.textview.MaterialTextView
             android:id="@+id/emptyInfoTextView"
@@ -57,7 +57,7 @@
         android:background="#44000000"
         android:visibility="gone"
         android:clickable="true"
-        app:layout_behavior=".main.FloatingActionButtonBackgroundBehavior"/>
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonBackgroundBehavior"/>
 
     <LinearLayout
         android:id="@+id/floatingActionButtonDial"
@@ -69,7 +69,7 @@
         android:layout_marginRight="20dp"
         android:layout_height="wrap_content"
         android:layout_width="wrap_content"
-        app:layout_behavior=".main.FloatingActionButtonSpeedDialBehavior"
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonSpeedDialBehavior"
         android:gravity="right"
         android:clipChildren="false">
 
@@ -152,14 +152,15 @@
             app:layout_scrollFlags="scroll|enterAlways"
             android:theme="@style/AppTheme.Toolbar">
 
-            <androidx.appcompat.widget.AppCompatTextView
+            <ImageView
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="44dp"
                 android:layout_gravity="center"
-                android:fontFamily="sans-serif-condensed"
-                android:text="@string/title_main"
-                android:textColor="?attr/colorOnPrimary"
-                android:textSize="20dp" />
+                android:adjustViewBounds="true"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:contentDescription="@string/title_main"
+                android:src="@drawable/viecity_logo" />
 
         </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>

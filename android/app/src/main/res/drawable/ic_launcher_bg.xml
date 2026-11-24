@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Evening sky: night violet at the top, orange at the bottom -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#160834"
+        android:centerColor="#B02A84"
+        android:centerY="0.62"
+        android:endColor="#FFAA5A" />
+</shape>

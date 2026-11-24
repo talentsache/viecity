@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import com.metallic.chiaki.R
+import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.RevealActivity
 import com.metallic.chiaki.databinding.ActivityRegistBinding
 import com.metallic.chiaki.lib.RegistInfo
@@ -28,6 +29,7 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		private const val PIN_LENGTH = 8
 
 		private const val REQUEST_REGIST = 1
+		private const val REQUEST_PSN_LOGIN = 2
 	}
 
 	private lateinit var viewModel: RegistViewModel
@@ -50,6 +52,12 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		binding.broadcastCheckBox.isChecked = intent.getBooleanExtra(EXTRA_BROADCAST, true)
 
 		binding.registButton.setOnClickListener { doRegist() }
+
+		val preferences = Preferences(this)
+		preferences.psnAccountId?.let { binding.psnIdEditText.setText(it) }
+		binding.psnAccountIdHelpURLTextView.setOnClickListener {
+			startActivityForResult(Intent(this, PsnLoginActivity::class.java), REQUEST_PSN_LOGIN)
+		}
 
 		binding.ps4VersionRadioGroup.check(when(viewModel.ps4Version.value ?: RegistViewModel.ConsoleVersion.PS5) {
 			RegistViewModel.ConsoleVersion.PS5 -> R.id.ps5RadioButton
@@ -144,5 +152,12 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		super.onActivityResult(requestCode, resultCode, data)
 		if(requestCode == REQUEST_REGIST && resultCode == RESULT_OK)
 			finish()
+		if(requestCode == REQUEST_PSN_LOGIN && resultCode == RESULT_OK)
+			data?.getStringExtra(PsnLoginActivity.RESULT_ACCOUNT_ID)?.let {
+				Preferences(this).psnAccountId = it
+				binding.psnIdEditText.setText(it)
+				binding.psnIdEditText.error = null
+				binding.pinEditText.requestFocus()
+			}
 	}
 }

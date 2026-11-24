@@ -25,6 +25,7 @@ import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
+import com.metallic.chiaki.vr.VrStreamActivity
 
 class MainActivity : AppCompatActivity()
 {
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity()
 		viewModel.displayHosts.observe(this, Observer {
 			val top = binding.hostsRecyclerView.computeVerticalScrollOffset() == 0
 			recyclerViewAdapter.hosts = it
+			quickStart(it)
 			if(top)
 				binding.hostsRecyclerView.scrollToPosition(0)
 			updateEmptyInfo()
@@ -77,13 +79,32 @@ class MainActivity : AppCompatActivity()
 		})
 	}
 
+	private var quickStartDone = false
+
+	/**
+	 * Quick start: if exactly one paired console is present and awake, the app connects
+	 * by itself on opening. Only once per start, after that the list stays as it is.
+	 */
+	private fun quickStart(hosts: List<DisplayHost>)
+	{
+		if(quickStartDone || !Preferences(this).quickStart)
+			return
+		val registered = hosts.filter { it.isRegistered }
+		if(registered.size != 1)
+			return
+		val host = registered[0]
+		if(host is DiscoveredDisplayHost && host.discoveredHost.state != DiscoveryHost.State.READY)
+			return
+		quickStartDone = true
+		hostTriggered(host)
+	}
+
 	private fun updateEmptyInfo()
 	{
 		if(viewModel.displayHosts.value?.isEmpty() ?: true)
 		{
 			binding.emptyInfoLayout.visibility = View.VISIBLE
 			val discoveryActive = viewModel.discoveryActive.value ?: false
-			binding.emptyInfoImageView.setImageResource(if(discoveryActive) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
 			binding.emptyInfoTextView.setText(if(discoveryActive) R.string.display_hosts_empty_discovery_on_info else R.string.display_hosts_empty_discovery_off_info)
 		}
 		else
@@ -181,8 +202,17 @@ class MainActivity : AppCompatActivity()
 		{
 			fun connect() {
 				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
-				Intent(this, StreamActivity::class.java).let {
-					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
+				// On a VR headset the stream runs on the screen in the room.
+				val vr = packageManager.hasSystemFeature("oculus.hardware.standalone_vr") || packageManager.hasSystemFeature("android.hardware.vr.headtracking")
+				val target = if(vr) VrStreamActivity::class.java else StreamActivity::class.java
+				// Compression artifacts are very visible on the large screen. Without a user
+				// setting, the VR view therefore requests double the bitrate.
+				val info = if(vr && Preferences(this).bitrate == null)
+					connectInfo.copy(videoProfile = connectInfo.videoProfile.copy(bitrate = 30000))
+				else
+					connectInfo
+				Intent(this, target).let {
+					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, info)
 					startActivity(it)
 				}
 			}

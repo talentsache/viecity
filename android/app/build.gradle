@@ -22,14 +22,15 @@ println("Determined Chiaki Version: $chiakiVersion")
 android {
     namespace "com.metallic.chiaki"
     compileSdk 35
-    ndkVersion "28.2.13676358"
+    ndkVersion "27.1.12297006"
 
     defaultConfig {
-        applicationId "com.metallic.chiaki"
+        applicationId "com.talentsache.viecity"
         minSdk 24
         targetSdk 35
-        versionCode 12
-        versionName chiakiVersion
+        versionCode 1
+        versionName "0.1.0"
+        ndk { abiFilters "arm64-v8a" }
         externalNativeBuild {
             cmake {
                 arguments "-DCHIAKI_ENABLE_TESTS=OFF",
@@ -80,7 +81,8 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
+            // Not minified: the OpenXR layer calls back into Kotlin by method name.
+            minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -94,7 +96,6 @@ android {
     if(properties.containsKey("chiakiKeystore")) {
         println("Enabling Local Signing")
         buildTypes.release.signingConfig = signingConfigs.release
-        buildTypes.debug.signingConfig = signingConfigs.release
         signingConfigs.release.storeFile = file(properties.get("chiakiKeystore"))
         signingConfigs.release.storePassword = properties.get("chiakiKeystorePW")
         signingConfigs.release.keyAlias = properties.get("chiakiKeyAlias")
@@ -131,6 +132,7 @@ dependencies {
     ksp libs.moshi.kotlin.codegen
 
     implementation libs.oboe
+    implementation libs.openxr.loader
 
     testImplementation 'junit:junit:4.13.2'
 }

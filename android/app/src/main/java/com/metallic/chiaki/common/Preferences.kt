@@ -41,7 +41,7 @@ class Preferences(context: Context)
 
 	companion object
 	{
-		val resolutionDefault = Resolution.RES_720P
+		val resolutionDefault = Resolution.RES_1080P
 		val resolutionAll = Resolution.values()
 		val fpsDefault = FPS.FPS_60
 		val fpsAll = FPS.values()
@@ -93,6 +93,16 @@ class Preferences(context: Context)
 	var logVerbose
 		get() = sharedPreferences.getBoolean(logVerboseKey, false)
 		set(value) { sharedPreferences.edit().putBoolean(logVerboseKey, value).apply() }
+
+	val quickStartKey get() = resources.getString(R.string.preferences_quick_start_key)
+	var quickStart
+		get() = sharedPreferences.getBoolean(quickStartKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(quickStartKey, value).apply() }
+
+	/** Account ID last fetched via the Sony login, so it is already filled in at the next pairing. */
+	var psnAccountId: String?
+		get() = sharedPreferences.getString("psn_account_id", null)
+		set(value) { sharedPreferences.edit().putString("psn_account_id", value).apply() }
 
 	val swapCrossMoonKey get() = resources.getString(R.string.preferences_swap_cross_moon_key)
 	var swapCrossMoon

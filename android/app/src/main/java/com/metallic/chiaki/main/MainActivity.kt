@@ -25,6 +25,7 @@ import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
+import com.metallic.chiaki.vr.VrStreamActivity
 
 class MainActivity : AppCompatActivity()
 {
@@ -181,7 +182,12 @@ class MainActivity : AppCompatActivity()
 		{
 			fun connect() {
 				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
-				Intent(this, StreamActivity::class.java).let {
+				// Auf einem VR-Headset läuft der Stream auf der Leinwand im Raum.
+				val target = if(packageManager.hasSystemFeature("android.hardware.vr.headtracking"))
+					VrStreamActivity::class.java
+				else
+					StreamActivity::class.java
+				Intent(this, target).let {
 					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
 					startActivity(it)
 				}

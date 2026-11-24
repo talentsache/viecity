@@ -23,3 +23,11 @@ target_link_libraries(chiaki-jni "${ANDROID_LIB_LOG}" "${ANDROID_LIB_MEDIANDK}" 
 
 find_package (oboe REQUIRED CONFIG)
 target_link_libraries(chiaki-jni oboe::oboe)
+
+# VIE City VR: OpenXR-Schicht für die Quest
+add_library(viecity-xr SHARED src/main/cpp/viecity-xr.cpp)
+find_package(OpenXR REQUIRED CONFIG)
+find_library(ANDROID_LIB_EGL EGL)
+find_library(ANDROID_LIB_GLES3 GLESv3)
+target_link_libraries(viecity-xr OpenXR::openxr_loader
+        "${ANDROID_LIB_LOG}" "${ANDROID_LIB_ANDROID}" "${ANDROID_LIB_EGL}" "${ANDROID_LIB_GLES3}")

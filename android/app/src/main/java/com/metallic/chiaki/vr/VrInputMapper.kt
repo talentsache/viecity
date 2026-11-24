@@ -100,6 +100,7 @@ data class VrTuning(
  *  Menü halten + r. Trigger -> Leinwand neu ausrichten
  *  Menü halten + r. Griff   -> Kopf-Kamera wechseln: mitlaufend, Blick zur Seite, aus
  *  Menü halten + l. Griff   -> Share (Create)
+ *  Menü halten + l. Trigger -> Stream verlassen, zurück zur Liste und zu den Einstellungen
  *
  * Die Menü-Taste liegt unter dem linken Daumen, deshalb liegen alle
  * Kombinationen auf der rechten Hand oder auf den Fingern der linken.
@@ -108,6 +109,8 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 {
 	var onRecenter: (() -> Unit)? = null
 	var onNotice: ((String) -> Unit)? = null
+	/** Stream verlassen, zurück zur Liste und zu den Einstellungen. */
+	var onLeave: (() -> Unit)? = null
 	/** Leinwand größer (positiv) oder kleiner, Anteil je Sekunde. */
 	var onZoom: ((Float) -> Unit)? = null
 
@@ -123,6 +126,7 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 	private var menuUsedAsModifier = false
 	private var optionsUntilNs = 0L
 	private var lastButtons = 0
+	private var leaveAsked = false
 	private var comboTriggerWasDown = false
 	private var comboGripWasDown = false
 
@@ -169,6 +173,12 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 				onZoom?.invoke(-frame.rightY * dt)
 				menuUsedAsModifier = true
 			}
+			if(frame.leftTrigger > 0.8f && !leaveAsked)
+			{
+				leaveAsked = true
+				menuUsedAsModifier = true
+				onLeave?.invoke()
+			}
 			val rightTriggerDown = frame.rightTrigger > 0.6f
 			val rightGripDown = frame.rightGrip > 0.6f
 			if(rightTriggerDown && !comboTriggerWasDown) { onRecenter?.invoke(); menuUsedAsModifier = true }
@@ -211,7 +221,7 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 		}
 
 		state.buttons = state.buttons or buttons or macro.buttons(nowNs)
-		state.l2State = (frame.leftTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
+		state.l2State = if(menu) 0U else (frame.leftTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
 		state.r2State = if(menu) 0U else (frame.rightTrigger.coerceIn(0f, 1f) * 255f).toInt().toUByte()
 		state.leftX = stick(lx)
 		state.leftY = stick(ly)

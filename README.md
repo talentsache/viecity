@@ -19,7 +19,7 @@ It is a fork of [chiaki-ng](https://github.com/streetpea/chiaki-ng), the open so
 - **Head as camera.** Turning your head moves the in-game camera through the right stick.
 - **Aim with your hand.** While you hold the left trigger, the right controller steers the camera instead of your head.
 - **First-person button.** One combo plays the button sequence for the first-person glitch with the exact timing.
-- **Ambient light.** The picture is repeated large and dim behind the screen, so the room takes on the colours of the scene.
+- **Its own place.** Around the screen is a sunset over a skyline with a Ferris wheel, a cathedral spire and palm trees, instead of a black void.
 - **Rumble.** PS5 rumble arrives in the Touch controllers.
 - **Sign in with PlayStation.** The app fetches your Account ID for pairing, so there is nothing to look up or type.
 - **Quick start.** With one paired console the app connects as soon as it opens.
@@ -69,6 +69,7 @@ Hold the **left menu button** for everything else:
 | Right trigger | Put the screen back in front of you |
 | Right grip | Switch the head camera: follow, peek, off |
 | Right stick up or down | Screen smaller or larger |
+| Left trigger | Leave the stream, back to the console list and the settings |
 
 ## Head camera modes
 
@@ -100,8 +101,8 @@ With the Quest on a cable you can change values while the stream runs:
 # head camera: degrees per second for full stick, dead zone, minimum stick, smoothing
 adb shell am broadcast -a com.talentsache.viecity.TUNE --es speed 110 --es dead 2.5 --es min 0.30 --es smooth 0.25
 
-# screen: radius in metres, arc in radians, height offset in metres, ambient light 0 to 1
-adb shell am broadcast -a com.talentsache.viecity.TUNE --es radius 2.0 --es angle 2.2 --es height 0 --es ambient 0.16
+# screen: radius in metres, arc in radians, height offset in metres, brightness of the surroundings 0 to 1
+adb shell am broadcast -a com.talentsache.viecity.TUNE --es radius 2.0 --es angle 2.2 --es height 0 --es ambient 0.75
 
 # head camera mode (follow, peek, off), peek dead zone and full deflection in degrees, follow lag in seconds
 adb shell am broadcast -a com.talentsache.viecity.TUNE --es mode peek --es peekdead 12 --es peekfull 38 --es tau 0.18

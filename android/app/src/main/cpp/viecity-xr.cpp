@@ -62,8 +62,8 @@ struct Screen {
 	// statt dass man aus der Leinwand herausschaut.
 	std::atomic<bool> follow{true};
 	std::atomic<float> followTau{0.18f};   // Sekunden, kleiner = straffer
-	// Umgebungslicht: dasselbe Bild groß und stark gedimmt hinter der Leinwand, 0 = aus
-	std::atomic<float> ambient{0.16f};
+	// Helligkeit der Umgebung rund um die Leinwand, 0 = schwarz
+	std::atomic<float> ambient{0.75f};
 	// Lage im LOCAL-Raum, nur vom XR-Thread benutzt
 	float yaw = 0.0f, pitch = 0.0f;
 	float pos[3] = {0.0f, 0.0f, 0.0f};
@@ -102,7 +102,12 @@ struct App {
 	XrSwapchain videoSwapchain = XR_NULL_HANDLE;
 	jobject videoSurface = nullptr;
 	bool sessionRunning = false;
-	bool hasImageLayout = false, hasLayerSettings = false, hasColorScale = false;
+	bool hasImageLayout = false, hasLayerSettings = false, hasColorScale = false, hasEquirect = false;
+
+	// Umgebung: ein Rundumbild (2:1), einmal hochgeladen und danach nur noch gezeigt
+	std::vector<uint8_t> envPixels;
+	int envWidth = 0, envHeight = 0;
+	XrSwapchain envSwapchain = XR_NULL_HANDLE;
 
 	XrActionSet actionSet = XR_NULL_HANDLE;
 	XrPath handPath[2] = {XR_NULL_PATH, XR_NULL_PATH}; // 0 links, 1 rechts
@@ -250,6 +255,72 @@ bool initActions(App &app)
 	return check(xrAttachSessionActionSets(app.session, &attach), "xrAttachSessionActionSets");
 }
 
+// Lädt das Rundumbild einmal in eine eigene Swapchain. Schlägt etwas fehl, bleibt die Umgebung schwarz.
+void initEnvironment(App &app)
+{
+	if(!app.hasEquirect || app.envPixels.empty())
+		return;
+	uint32_t formatCount = 0;
+	xrEnumerateSwapchainFormats(app.session, 0, &formatCount, nullptr);
+	std::vector<int64_t> formats(formatCount);
+	xrEnumerateSwapchainFormats(app.session, formatCount, &formatCount, formats.data());
+	int64_t format = 0;
+	for(int64_t wanted : {(int64_t)GL_SRGB8_ALPHA8, (int64_t)GL_RGBA8})
+	{
+		for(int64_t f : formats)
+			if(f == wanted && !format)
+				format = f;
+	}
+	if(!format)
+		return;
+
+	XrSwapchainCreateInfo info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
+	info.createFlags = XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
+	info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+	info.format = format;
+	info.sampleCount = 1;
+	info.width = (uint32_t)app.envWidth;
+	info.height = (uint32_t)app.envHeight;
+	info.faceCount = 1;
+	info.arraySize = 1;
+	info.mipCount = 1;
+	XrSwapchain swapchain = XR_NULL_HANDLE;
+	if(!check(xrCreateSwapchain(app.session, &info, &swapchain), "Umgebung: xrCreateSwapchain"))
+		return;
+
+	uint32_t imageCount = 0;
+	xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr);
+	std::vector<XrSwapchainImageOpenGLESKHR> images(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+	xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader *)images.data());
+
+	uint32_t index = 0;
+	XrSwapchainImageWaitInfo wait = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+	wait.timeout = XR_INFINITE_DURATION;
+	if(imageCount < 1 || XR_FAILED(xrAcquireSwapchainImage(swapchain, nullptr, &index))
+		|| XR_FAILED(xrWaitSwapchainImage(swapchain, &wait)))
+	{
+		xrDestroySwapchain(swapchain);
+		return;
+	}
+	// Das Bild kommt mit der obersten Zeile zuerst, die Textur erwartet die unterste zuerst.
+	const int w = app.envWidth, h = app.envHeight;
+	std::vector<uint8_t> flipped(app.envPixels.size());
+	for(int y = 0; y < h; y++)
+		memcpy(&flipped[(size_t)y * w * 4], &app.envPixels[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
+	glBindTexture(GL_TEXTURE_2D, images[index].image);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, flipped.data());
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glFinish();
+	xrReleaseSwapchainImage(swapchain, nullptr);
+	app.envSwapchain = swapchain;
+	app.envPixels.clear();
+	app.envPixels.shrink_to_fit();
+	LOGI("Umgebung geladen: %d x %d", w, h);
+}
+
 bool initXr(App &app, JNIEnv *env)
 {
 	XrLoaderInitInfoAndroidKHR loaderInfo = {XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
@@ -280,10 +351,13 @@ bool initXr(App &app, JNIEnv *env)
 		};
 		if((app.hasImageLayout = has(XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME)))
 			extensions.push_back(XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME);
-		if((app.hasLayerSettings = has(XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)))
-			extensions.push_back(XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME);
+		// Nachschärfen (XR_FB_composition_layer_settings) bleibt aus: Auf der Quest 3 lag damit
+		// ein heller Kreis über dem Bild, und Bildschirmfotos wurden schwarz.
+		app.hasLayerSettings = false;
 		if((app.hasColorScale = has(XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME)))
 			extensions.push_back(XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME);
+		if((app.hasEquirect = has(XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)))
+			extensions.push_back(XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME);
 		LOGI("Zusätze: Bildlage %d, Schärfen %d, Dimmen %d", app.hasImageLayout, app.hasLayerSettings, app.hasColorScale);
 	}
 	XrInstanceCreateInfoAndroidKHR androidInfo = {XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
@@ -341,6 +415,7 @@ bool initXr(App &app, JNIEnv *env)
 		return false;
 	app.videoSurface = env->NewGlobalRef(surface);
 
+	initEnvironment(app);
 	return initActions(app);
 }
 
@@ -607,23 +682,27 @@ void threadMain(App *appPtr)
 		cylinder.centralAngle = app.screen.angle.load();
 		cylinder.aspectRatio = (float)kVideoWidth / (float)kVideoHeight;
 
-		// Umgebungslicht: dasselbe Bild weit hinten, fast rundum und stark gedimmt.
-		// Füllt das Schwarz um die Leinwand mit den Farben der Szene.
-		XrCompositionLayerImageLayoutFB ambientLayout = layout;
-		ambientLayout.next = nullptr;
+		// Umgebung: Rundumbild hinter der Leinwand, fest im Raum.
 		XrCompositionLayerColorScaleBiasKHR dim = {XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
 		float ambient = app.screen.ambient.load();
 		dim.colorScale = {ambient, ambient, ambient, 1.0f};
-		dim.next = app.hasImageLayout ? &ambientLayout : nullptr;
-		XrCompositionLayerCylinderKHR surround = cylinder;
-		surround.next = &dim;
-		surround.radius = 8.0f;
-		surround.centralAngle = 5.6f;
-		surround.aspectRatio = 2.6f;
+		XrCompositionLayerEquirect2KHR surround = {XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR};
+		surround.next = app.hasColorScale ? &dim : nullptr;
+		surround.space = app.localSpace;
+		surround.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		surround.subImage.swapchain = app.envSwapchain;
+		surround.subImage.imageRect.extent.width = app.envWidth;
+		surround.subImage.imageRect.extent.height = app.envHeight;
+		surround.pose.orientation.w = 1.0f;
+		surround.radius = 0.0f;
+		surround.centralHorizontalAngle = 2.0f * (float)M_PI;
+		surround.upperVerticalAngle = (float)M_PI * 0.5f;
+		surround.lowerVerticalAngle = -(float)M_PI * 0.5f;
 
 		const XrCompositionLayerBaseHeader *layers[2];
 		uint32_t layerCount = 0;
-		if(app.hasColorScale && ambient > 0.005f)
+		bool withSurround = app.envSwapchain != XR_NULL_HANDLE && ambient > 0.005f;
+		if(withSurround)
 			layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&surround;
 		layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&cylinder;
 		XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
@@ -631,9 +710,29 @@ void threadMain(App *appPtr)
 		end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 		end.layerCount = frameState.shouldRender ? layerCount : 0;
 		end.layers = layers;
-		xrEndFrame(app.session, &end);
+		XrResult endResult = xrEndFrame(app.session, &end);
+		if(XR_FAILED(endResult) && withSurround)
+		{
+			// Das Headset lehnt einen der Zusätze ab. Ohne gültiges Bild zeigt das System nur
+			// seinen Ladekreis, deshalb sofort mit der schlichten Leinwand weitermachen.
+			LOGE("xrEndFrame mit Umgebung fehlgeschlagen: %d. Schalte die Umgebung ab.", (int)endResult);
+			xrDestroySwapchain(app.envSwapchain);
+			app.envSwapchain = XR_NULL_HANDLE;
+			const XrCompositionLayerBaseHeader *plain[] = {(const XrCompositionLayerBaseHeader *)&cylinder};
+			end.layerCount = frameState.shouldRender ? 1 : 0;
+			end.layers = plain;
+			endResult = xrEndFrame(app.session, &end);
+		}
+		if(XR_FAILED(endResult))
+		{
+			static int reported = 0;
+			if(reported++ < 5)
+				LOGE("xrEndFrame fehlgeschlagen: %d", (int)endResult);
+		}
 	}
 
+	if(app.envSwapchain != XR_NULL_HANDLE)
+		xrDestroySwapchain(app.envSwapchain);
 	if(app.videoSwapchain != XR_NULL_HANDLE)
 		xrDestroySwapchain(app.videoSwapchain);
 	if(app.session != XR_NULL_HANDLE)
@@ -655,11 +754,22 @@ void threadMain(App *appPtr)
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeStart(JNIEnv *env, jobject, jobject activity)
+JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeStart(JNIEnv *env, jobject, jobject activity, jobject environment, jint envWidth, jint envHeight)
 {
 	if(g_app)
 		return;
 	App *app = new App();
+	if(environment && envWidth > 0 && envHeight > 0)
+	{
+		const uint8_t *data = (const uint8_t *)env->GetDirectBufferAddress(environment);
+		jlong size = env->GetDirectBufferCapacity(environment);
+		if(data && size >= (jlong)envWidth * envHeight * 4)
+		{
+			app->envPixels.assign(data, data + (size_t)envWidth * envHeight * 4);
+			app->envWidth = envWidth;
+			app->envHeight = envHeight;
+		}
+	}
 	env->GetJavaVM(&app->vm);
 	app->activity = env->NewGlobalRef(activity);
 	jclass cls = env->GetObjectClass(activity);

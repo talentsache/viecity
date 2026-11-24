@@ -28,7 +28,7 @@ object XrBridge
 		System.loadLibrary("viecity-xr")
 	}
 
-	external fun nativeStart(activity: VrStreamActivity)
+	external fun nativeStart(activity: VrStreamActivity, environment: java.nio.ByteBuffer?, width: Int, height: Int)
 	external fun nativeStop()
 	external fun nativeHaptic(hand: Int, amplitude: Float, durationMs: Int)
 	external fun nativeRecenter()
@@ -121,6 +121,7 @@ class VrStreamActivity : Activity()
 			return
 		}
 
+		mapper.onLeave = { mainHandler.post { finish() } }
 		mapper.onRecenter = {
 			XrBridge.nativeRecenter()
 			mapper.resetPeekReference()
@@ -154,7 +155,8 @@ class VrStreamActivity : Activity()
 			return
 		}
 
-		XrBridge.nativeStart(this)
+		val environment = loadEnvironment()
+		XrBridge.nativeStart(this, environment?.first, environment?.second ?: 0, environment?.third ?: 0)
 		xrStarted = true
 		XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
 		ContextCompat.registerReceiver(this, tuneReceiver, IntentFilter("com.talentsache.viecity.TUNE"), ContextCompat.RECEIVER_EXPORTED)
@@ -175,6 +177,22 @@ class VrStreamActivity : Activity()
 		closing?.stop()
 		closing?.dispose()
 		super.onDestroy()
+	}
+
+	/** Rundumbild der Umgebung als RGBA-Bytes. Fehlt es, bleibt der Raum schwarz. */
+	private fun loadEnvironment(): Triple<java.nio.ByteBuffer, Int, Int>? = try
+	{
+		val bitmap = assets.open("environment.jpg").use { android.graphics.BitmapFactory.decodeStream(it) }
+		val buffer = java.nio.ByteBuffer.allocateDirect(bitmap.width * bitmap.height * 4)
+		bitmap.copyPixelsToBuffer(buffer)
+		val result = Triple(buffer, bitmap.width, bitmap.height)
+		bitmap.recycle()
+		result
+	}
+	catch(e: Exception)
+	{
+		Log.w(TAG, "Umgebung konnte nicht geladen werden", e)
+		null
 	}
 
 	private fun sessionEvent(event: Event)

@@ -72,6 +72,10 @@
         </activity>
 
         <meta-data
+            android:name="com.oculus.ossplash"
+            android:value="true" />
+
+        <meta-data
             android:name="com.oculus.supportedDevices"
             android:value="quest2|questpro|quest3|quest3s" />
 

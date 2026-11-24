@@ -63,7 +63,7 @@ struct Screen {
 	std::atomic<bool> follow{true};
 	std::atomic<float> followTau{0.18f};   // Sekunden, kleiner = straffer
 	// Helligkeit der Umgebung rund um die Leinwand, 0 = schwarz
-	std::atomic<float> ambient{0.75f};
+	std::atomic<float> ambient{0.0f};
 	// Lage im LOCAL-Raum, nur vom XR-Thread benutzt
 	float yaw = 0.0f, pitch = 0.0f;
 	float pos[3] = {0.0f, 0.0f, 0.0f};
@@ -108,6 +108,12 @@ struct App {
 	std::vector<uint8_t> envPixels;
 	int envWidth = 0, envHeight = 0;
 	XrSwapchain envSwapchain = XR_NULL_HANDLE;
+
+	// Hilfe-Tafel mit der Tastenbelegung, erscheint unter der Leinwand
+	std::vector<uint8_t> hintPixels;
+	int hintWidth = 0, hintHeight = 0;
+	XrSwapchain hintSwapchain = XR_NULL_HANDLE;
+	std::atomic<bool> hintVisible{false};
 
 	XrActionSet actionSet = XR_NULL_HANDLE;
 	XrPath handPath[2] = {XR_NULL_PATH, XR_NULL_PATH}; // 0 links, 1 rechts
@@ -255,11 +261,11 @@ bool initActions(App &app)
 	return check(xrAttachSessionActionSets(app.session, &attach), "xrAttachSessionActionSets");
 }
 
-// Lädt das Rundumbild einmal in eine eigene Swapchain. Schlägt etwas fehl, bleibt die Umgebung schwarz.
-void initEnvironment(App &app)
+// Lädt ein festes Bild (RGBA, oberste Zeile zuerst) einmal in eine eigene Swapchain.
+XrSwapchain createStaticImage(App &app, const std::vector<uint8_t> &pixels, int w, int h)
 {
-	if(!app.hasEquirect || app.envPixels.empty())
-		return;
+	if(pixels.empty() || w <= 0 || h <= 0)
+		return XR_NULL_HANDLE;
 	uint32_t formatCount = 0;
 	xrEnumerateSwapchainFormats(app.session, 0, &formatCount, nullptr);
 	std::vector<int64_t> formats(formatCount);
@@ -272,21 +278,21 @@ void initEnvironment(App &app)
 				format = f;
 	}
 	if(!format)
-		return;
+		return XR_NULL_HANDLE;
 
 	XrSwapchainCreateInfo info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
 	info.createFlags = XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
 	info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 	info.format = format;
 	info.sampleCount = 1;
-	info.width = (uint32_t)app.envWidth;
-	info.height = (uint32_t)app.envHeight;
+	info.width = (uint32_t)w;
+	info.height = (uint32_t)h;
 	info.faceCount = 1;
 	info.arraySize = 1;
 	info.mipCount = 1;
 	XrSwapchain swapchain = XR_NULL_HANDLE;
-	if(!check(xrCreateSwapchain(app.session, &info, &swapchain), "Umgebung: xrCreateSwapchain"))
-		return;
+	if(!check(xrCreateSwapchain(app.session, &info, &swapchain), "Bild: xrCreateSwapchain"))
+		return XR_NULL_HANDLE;
 
 	uint32_t imageCount = 0;
 	xrEnumerateSwapchainImages(swapchain, 0, &imageCount, nullptr);
@@ -300,13 +306,12 @@ void initEnvironment(App &app)
 		|| XR_FAILED(xrWaitSwapchainImage(swapchain, &wait)))
 	{
 		xrDestroySwapchain(swapchain);
-		return;
+		return XR_NULL_HANDLE;
 	}
-	// Das Bild kommt mit der obersten Zeile zuerst, die Textur erwartet die unterste zuerst.
-	const int w = app.envWidth, h = app.envHeight;
-	std::vector<uint8_t> flipped(app.envPixels.size());
+	// Die Textur erwartet die unterste Zeile zuerst.
+	std::vector<uint8_t> flipped(pixels.size());
 	for(int y = 0; y < h; y++)
-		memcpy(&flipped[(size_t)y * w * 4], &app.envPixels[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
+		memcpy(&flipped[(size_t)y * w * 4], &pixels[(size_t)(h - 1 - y) * w * 4], (size_t)w * 4);
 	glBindTexture(GL_TEXTURE_2D, images[index].image);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, flipped.data());
@@ -315,10 +320,19 @@ void initEnvironment(App &app)
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glFinish();
 	xrReleaseSwapchainImage(swapchain, nullptr);
-	app.envSwapchain = swapchain;
+	return swapchain;
+}
+
+void initImages(App &app)
+{
+	if(app.hasEquirect)
+		app.envSwapchain = createStaticImage(app, app.envPixels, app.envWidth, app.envHeight);
+	app.hintSwapchain = createStaticImage(app, app.hintPixels, app.hintWidth, app.hintHeight);
 	app.envPixels.clear();
 	app.envPixels.shrink_to_fit();
-	LOGI("Umgebung geladen: %d x %d", w, h);
+	app.hintPixels.clear();
+	app.hintPixels.shrink_to_fit();
+	LOGI("Bilder geladen: Umgebung %d, Hilfe %d", app.envSwapchain != XR_NULL_HANDLE, app.hintSwapchain != XR_NULL_HANDLE);
 }
 
 bool initXr(App &app, JNIEnv *env)
@@ -415,7 +429,7 @@ bool initXr(App &app, JNIEnv *env)
 		return false;
 	app.videoSurface = env->NewGlobalRef(surface);
 
-	initEnvironment(app);
+	initImages(app);
 	return initActions(app);
 }
 
@@ -699,12 +713,37 @@ void threadMain(App *appPtr)
 		surround.upperVerticalAngle = (float)M_PI * 0.5f;
 		surround.lowerVerticalAngle = -(float)M_PI * 0.5f;
 
-		const XrCompositionLayerBaseHeader *layers[2];
+		// Hilfe-Tafel: hängt an der Leinwand, unten und etwas näher, leicht zum Kopf geneigt.
+		XrCompositionLayerQuad hint = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+		hint.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		hint.space = app.localSpace;
+		hint.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		hint.subImage.swapchain = app.hintSwapchain;
+		hint.subImage.imageRect.extent.width = app.hintWidth;
+		hint.subImage.imageRect.extent.height = app.hintHeight;
+		hint.pose.orientation = cylinder.pose.orientation;
+		{
+			// Versatz (0, -0.42, -1.25) im Raum der Leinwand
+			const XrQuaternionf &q = cylinder.pose.orientation;
+			const float v[3] = {0.0f, -0.42f, -1.25f};
+			// v' = v + 2w(q x v) + 2 q x (q x v)
+			float cx = q.y * v[2] - q.z * v[1], cy = q.z * v[0] - q.x * v[2], cz = q.x * v[1] - q.y * v[0];
+			float dx = q.y * cz - q.z * cy, dy = q.z * cx - q.x * cz, dz = q.x * cy - q.y * cx;
+			hint.pose.position.x = app.screen.pos[0] + v[0] + 2.0f * (q.w * cx + dx);
+			hint.pose.position.y = app.screen.pos[1] + v[1] + 2.0f * (q.w * cy + dy);
+			hint.pose.position.z = app.screen.pos[2] + v[2] + 2.0f * (q.w * cz + dz);
+		}
+		hint.size.width = 1.15f;
+		hint.size.height = app.hintWidth > 0 ? 1.15f * (float)app.hintHeight / (float)app.hintWidth : 0.3f;
+
+		const XrCompositionLayerBaseHeader *layers[3];
 		uint32_t layerCount = 0;
 		bool withSurround = app.envSwapchain != XR_NULL_HANDLE && ambient > 0.005f;
 		if(withSurround)
 			layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&surround;
 		layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&cylinder;
+		if(app.hintSwapchain != XR_NULL_HANDLE && app.hintVisible)
+			layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&hint;
 		XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
 		end.displayTime = frameState.predictedDisplayTime;
 		end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -733,6 +772,8 @@ void threadMain(App *appPtr)
 
 	if(app.envSwapchain != XR_NULL_HANDLE)
 		xrDestroySwapchain(app.envSwapchain);
+	if(app.hintSwapchain != XR_NULL_HANDLE)
+		xrDestroySwapchain(app.hintSwapchain);
 	if(app.videoSwapchain != XR_NULL_HANDLE)
 		xrDestroySwapchain(app.videoSwapchain);
 	if(app.session != XR_NULL_HANDLE)
@@ -754,22 +795,34 @@ void threadMain(App *appPtr)
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeStart(JNIEnv *env, jobject, jobject activity, jobject environment, jint envWidth, jint envHeight)
+static void takeImage(JNIEnv *env, jobject buffer, jint w, jint h, std::vector<uint8_t> &pixels, int &outW, int &outH)
+{
+	if(!buffer || w <= 0 || h <= 0)
+		return;
+	const uint8_t *data = (const uint8_t *)env->GetDirectBufferAddress(buffer);
+	jlong size = env->GetDirectBufferCapacity(buffer);
+	if(!data || size < (jlong)w * h * 4)
+		return;
+	pixels.assign(data, data + (size_t)w * h * 4);
+	outW = w;
+	outH = h;
+}
+
+JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeShowHint(JNIEnv *, jobject, jboolean visible)
+{
+	if(g_app)
+		g_app->hintVisible = visible;
+}
+
+JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeStart(JNIEnv *env, jobject, jobject activity,
+	jobject environment, jint envWidth, jint envHeight, jobject hint, jint hintWidth, jint hintHeight)
 {
 	if(g_app)
 		return;
 	App *app = new App();
-	if(environment && envWidth > 0 && envHeight > 0)
-	{
-		const uint8_t *data = (const uint8_t *)env->GetDirectBufferAddress(environment);
-		jlong size = env->GetDirectBufferCapacity(environment);
-		if(data && size >= (jlong)envWidth * envHeight * 4)
-		{
-			app->envPixels.assign(data, data + (size_t)envWidth * envHeight * 4);
-			app->envWidth = envWidth;
-			app->envHeight = envHeight;
-		}
-	}
+	takeImage(env, environment, envWidth, envHeight, app->envPixels, app->envWidth, app->envHeight);
+	takeImage(env, hint, hintWidth, hintHeight, app->hintPixels, app->hintWidth, app->hintHeight);
+	app->hintVisible = true;
 	env->GetJavaVM(&app->vm);
 	app->activity = env->NewGlobalRef(activity);
 	jclass cls = env->GetObjectClass(activity);

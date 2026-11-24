@@ -109,6 +109,11 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 {
 	var onRecenter: (() -> Unit)? = null
 	var onNotice: ((String) -> Unit)? = null
+	/** Hilfe-Tafel zeigen, solange die Menü-Taste gehalten wird. */
+	var onHelp: ((Boolean) -> Unit)? = null
+	var helpHeld = false
+		private set
+	private var menuDownNs = 0L
 	/** Stream verlassen, zurück zur Liste und zu den Einstellungen. */
 	var onLeave: (() -> Unit)? = null
 	/** Leinwand größer (positiv) oder kleiner, Anteil je Sekunde. */
@@ -141,7 +146,17 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 		lastButtons = frame.buttons
 
 		if(menu && !menuWasDown)
+		{
 			menuUsedAsModifier = false
+			menuDownNs = nowNs
+		}
+		// Ein kurzer Druck ist Options, erst das Halten holt die Hilfe.
+		val help = menu && nowNs - menuDownNs > 350_000_000L
+		if(help != helpHeld)
+		{
+			helpHeld = help
+			onHelp?.invoke(help)
+		}
 		if(!menu && menuWasDown && !menuUsedAsModifier)
 			optionsUntilNs = nowNs + 120_000_000L
 		menuWasDown = menu

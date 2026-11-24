@@ -28,7 +28,9 @@ object XrBridge
 		System.loadLibrary("viecity-xr")
 	}
 
-	external fun nativeStart(activity: VrStreamActivity, environment: java.nio.ByteBuffer?, width: Int, height: Int)
+	external fun nativeStart(activity: VrStreamActivity, environment: java.nio.ByteBuffer?, width: Int, height: Int,
+		hint: java.nio.ByteBuffer?, hintWidth: Int, hintHeight: Int)
+	external fun nativeShowHint(visible: Boolean)
 	external fun nativeStop()
 	external fun nativeHaptic(hand: Int, amplitude: Float, durationMs: Int)
 	external fun nativeRecenter()
@@ -156,8 +158,12 @@ class VrStreamActivity : Activity()
 		}
 
 		val environment = loadEnvironment()
-		XrBridge.nativeStart(this, environment?.first, environment?.second ?: 0, environment?.third ?: 0)
+		XrBridge.nativeStart(this, environment?.first, environment?.second ?: 0, environment?.third ?: 0,
+			VrHelpPanel.render(this), VrHelpPanel.WIDTH, VrHelpPanel.HEIGHT)
 		xrStarted = true
+		// Die Hilfe steht beim Start kurz da und kommt wieder, solange die Menü-Taste gehalten wird.
+		mapper.onHelp = { visible -> XrBridge.nativeShowHint(visible) }
+		mainHandler.postDelayed({ if(xrStarted && !mapper.helpHeld) XrBridge.nativeShowHint(false) }, 9000)
 		XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
 		ContextCompat.registerReceiver(this, tuneReceiver, IntentFilter("com.talentsache.viecity.TUNE"), ContextCompat.RECEIVER_EXPORTED)
 	}

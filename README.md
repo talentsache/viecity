@@ -19,7 +19,7 @@ It is a fork of [chiaki-ng](https://github.com/streetpea/chiaki-ng), the open so
 - **Head as camera.** Turning your head moves the in-game camera through the right stick.
 - **Aim with your hand.** While you hold the left trigger, the right controller steers the camera instead of your head.
 - **First-person button.** One combo plays the button sequence for the first-person glitch with the exact timing.
-- **Its own place.** Around the screen is a sunset over a skyline with a Ferris wheel, a cathedral spire and palm trees, instead of a black void.
+- **Help where you need it.** Hold the left menu button and a panel under the screen shows every combo.
 - **Rumble.** PS5 rumble arrives in the Touch controllers.
 - **Sign in with PlayStation.** The app fetches your Account ID for pairing, so there is nothing to look up or type.
 - **Quick start.** With one paired console the app connects as soon as it opens.
@@ -57,7 +57,7 @@ The pairing is kept. From then on the app connects by itself when you open it. Y
 | Grip buttons | L1, R1 |
 | Left menu button, short press | Options |
 
-Hold the **left menu button** for everything else:
+Hold the **left menu button** for everything else. While you hold it, a panel under the screen lists these combos:
 
 | Menu + … | Does |
 |---|---|

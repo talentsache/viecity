@@ -19,6 +19,7 @@ It is a fork of [chiaki-ng](https://github.com/streetpea/chiaki-ng), the open so
 - **Head as camera.** Turning your head moves the in-game camera through the right stick.
 - **Aim with your hand.** While you hold the left trigger, the right controller steers the camera instead of your head.
 - **First-person button.** One combo plays the button sequence for the first-person glitch with the exact timing.
+- **Ambient light.** The picture is repeated large and dim behind the screen, so the room takes on the colours of the scene.
 - **Rumble.** PS5 rumble arrives in the Touch controllers.
 - **Sign in with PlayStation.** The app fetches your Account ID for pairing, so there is nothing to look up or type.
 - **Quick start.** With one paired console the app connects as soon as it opens.
@@ -66,7 +67,14 @@ Hold the **left menu button** for everything else:
 | Left grip | Create (Share) |
 | A | First-person button sequence |
 | Right trigger | Put the screen back in front of you |
-| Right grip | Head camera on and off |
+| Right grip | Switch the head camera: follow, peek, off |
+| Right stick up or down | Screen smaller or larger |
+
+## Head camera modes
+
+- **Follow.** Every turn of your head turns the camera and the screen stays in front of you. Good for looking around on foot.
+- **Peek.** The screen stays where it is. Small head movements just look across the picture. A clear look to the side holds the camera there, and it returns when you look back. Good for driving.
+- **Off.** The screen stays where it is and your head controls nothing.
 
 ## First person in GTA 6
 
@@ -90,10 +98,13 @@ With the Quest on a cable you can change values while the stream runs:
 
 ```sh
 # head camera: degrees per second for full stick, dead zone, minimum stick, smoothing
-adb shell am broadcast -a com.talentsache.viecity.TUNE --es speed 220 --es dead 2.5 --es min 0.22 --es smooth 0.35
+adb shell am broadcast -a com.talentsache.viecity.TUNE --es speed 110 --es dead 2.5 --es min 0.30 --es smooth 0.25
 
-# screen: radius in metres, arc in radians, height offset in metres
-adb shell am broadcast -a com.talentsache.viecity.TUNE --es radius 2.6 --es angle 1.75 --es height 0
+# screen: radius in metres, arc in radians, height offset in metres, ambient light 0 to 1
+adb shell am broadcast -a com.talentsache.viecity.TUNE --es radius 2.0 --es angle 2.2 --es height 0 --es ambient 0.16
+
+# head camera mode (follow, peek, off), peek dead zone and full deflection in degrees, follow lag in seconds
+adb shell am broadcast -a com.talentsache.viecity.TUNE --es mode peek --es peekdead 12 --es peekfull 38 --es tau 0.18
 
 # play any button sequence: letters are buttons, numbers are milliseconds
 adb shell am broadcast -a com.talentsache.viecity.TUNE --es macro "U:150,_:1800,O:100,_:50,T:80"

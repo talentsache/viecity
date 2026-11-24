@@ -61,7 +61,9 @@ struct Screen {
 	// Leinwand folgt dem Kopf. Mit Kopf-Kamera bleibt das Bild so vor den Augen,
 	// statt dass man aus der Leinwand herausschaut.
 	std::atomic<bool> follow{true};
-	std::atomic<float> followTau{0.10f};   // Sekunden, kleiner = straffer
+	std::atomic<float> followTau{0.18f};   // Sekunden, kleiner = straffer
+	// Umgebungslicht: dasselbe Bild groß und stark gedimmt hinter der Leinwand, 0 = aus
+	std::atomic<float> ambient{0.16f};
 	// Lage im LOCAL-Raum, nur vom XR-Thread benutzt
 	float yaw = 0.0f, pitch = 0.0f;
 	float pos[3] = {0.0f, 0.0f, 0.0f};
@@ -100,6 +102,7 @@ struct App {
 	XrSwapchain videoSwapchain = XR_NULL_HANDLE;
 	jobject videoSurface = nullptr;
 	bool sessionRunning = false;
+	bool hasImageLayout = false, hasLayerSettings = false, hasColorScale = false;
 
 	XrActionSet actionSet = XR_NULL_HANDLE;
 	XrPath handPath[2] = {XR_NULL_PATH, XR_NULL_PATH}; // 0 links, 1 rechts
@@ -257,13 +260,32 @@ bool initXr(App &app, JNIEnv *env)
 	if(!initLoader || !check(initLoader((XrLoaderInitInfoBaseHeaderKHR *)&loaderInfo), "xrInitializeLoaderKHR"))
 		return false;
 
-	const char *extensions[] = {
+	std::vector<const char *> extensions = {
 		XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
 		XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
 		XR_KHR_ANDROID_SURFACE_SWAPCHAIN_EXTENSION_NAME,
 		XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME,
-		XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME,
 	};
+	// Zusätze nur einschalten, wenn das Headset sie kennt, sonst scheitert der Start.
+	{
+		uint32_t count = 0;
+		xrEnumerateInstanceExtensionProperties(nullptr, 0, &count, nullptr);
+		std::vector<XrExtensionProperties> available(count, {XR_TYPE_EXTENSION_PROPERTIES});
+		xrEnumerateInstanceExtensionProperties(nullptr, count, &count, available.data());
+		auto has = [&](const char *name) {
+			for(auto &e : available)
+				if(!strcmp(e.extensionName, name))
+					return true;
+			return false;
+		};
+		if((app.hasImageLayout = has(XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME)))
+			extensions.push_back(XR_FB_COMPOSITION_LAYER_IMAGE_LAYOUT_EXTENSION_NAME);
+		if((app.hasLayerSettings = has(XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)))
+			extensions.push_back(XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME);
+		if((app.hasColorScale = has(XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME)))
+			extensions.push_back(XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME);
+		LOGI("Zusätze: Bildlage %d, Schärfen %d, Dimmen %d", app.hasImageLayout, app.hasLayerSettings, app.hasColorScale);
+	}
 	XrInstanceCreateInfoAndroidKHR androidInfo = {XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
 	androidInfo.applicationVM = app.vm;
 	androidInfo.applicationActivity = app.activity;
@@ -273,8 +295,8 @@ bool initXr(App &app, JNIEnv *env)
 	instanceInfo.applicationInfo.applicationVersion = 1;
 	strcpy(instanceInfo.applicationInfo.engineName, "viecity");
 	instanceInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 34);
-	instanceInfo.enabledExtensionCount = sizeof(extensions) / sizeof(extensions[0]);
-	instanceInfo.enabledExtensionNames = extensions;
+	instanceInfo.enabledExtensionCount = (uint32_t)extensions.size();
+	instanceInfo.enabledExtensionNames = extensions.data();
 	if(!check(xrCreateInstance(&instanceInfo, &app.instance), "xrCreateInstance"))
 		return false;
 
@@ -556,8 +578,14 @@ void threadMain(App *appPtr)
 		// Bilder aus einer Android-Surface stehen auf der Quest sonst auf dem Kopf.
 		XrCompositionLayerImageLayoutFB layout = {XR_TYPE_COMPOSITION_LAYER_IMAGE_LAYOUT_FB};
 		layout.flags = XR_COMPOSITION_LAYER_IMAGE_LAYOUT_VERTICAL_FLIP_BIT_FB;
+		// Die Leinwand wird vom System nachgeschärft, das hilft dem gestreckten Videobild.
+		XrCompositionLayerSettingsFB sharpen = {XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB};
+		sharpen.layerFlags = XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB;
+		void *chain = nullptr;
+		if(app.hasImageLayout) { layout.next = chain; chain = &layout; }
+		if(app.hasLayerSettings) { sharpen.next = chain; chain = &sharpen; }
 		XrCompositionLayerCylinderKHR cylinder = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
-		cylinder.next = &layout;
+		cylinder.next = chain;
 		cylinder.space = app.localSpace;
 		cylinder.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		cylinder.subImage.swapchain = app.videoSwapchain;
@@ -579,11 +607,29 @@ void threadMain(App *appPtr)
 		cylinder.centralAngle = app.screen.angle.load();
 		cylinder.aspectRatio = (float)kVideoWidth / (float)kVideoHeight;
 
-		const XrCompositionLayerBaseHeader *layers[] = {(const XrCompositionLayerBaseHeader *)&cylinder};
+		// Umgebungslicht: dasselbe Bild weit hinten, fast rundum und stark gedimmt.
+		// Füllt das Schwarz um die Leinwand mit den Farben der Szene.
+		XrCompositionLayerImageLayoutFB ambientLayout = layout;
+		ambientLayout.next = nullptr;
+		XrCompositionLayerColorScaleBiasKHR dim = {XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
+		float ambient = app.screen.ambient.load();
+		dim.colorScale = {ambient, ambient, ambient, 1.0f};
+		dim.next = app.hasImageLayout ? &ambientLayout : nullptr;
+		XrCompositionLayerCylinderKHR surround = cylinder;
+		surround.next = &dim;
+		surround.radius = 8.0f;
+		surround.centralAngle = 5.6f;
+		surround.aspectRatio = 2.6f;
+
+		const XrCompositionLayerBaseHeader *layers[2];
+		uint32_t layerCount = 0;
+		if(app.hasColorScale && ambient > 0.005f)
+			layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&surround;
+		layers[layerCount++] = (const XrCompositionLayerBaseHeader *)&cylinder;
 		XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
 		end.displayTime = frameState.predictedDisplayTime;
 		end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-		end.layerCount = frameState.shouldRender ? 1 : 0;
+		end.layerCount = frameState.shouldRender ? layerCount : 0;
 		end.layers = layers;
 		xrEndFrame(app.session, &end);
 	}
@@ -661,6 +707,12 @@ JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeSetFollow(JNIE
 	g_app->screen.followTau = tau;
 	// Beim Umschalten einmal sauber vor den Kopf setzen.
 	g_app->recenterRequested = true;
+}
+
+JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeSetAmbient(JNIEnv *, jobject, jfloat ambient)
+{
+	if(g_app)
+		g_app->screen.ambient = ambient;
 }
 
 JNIEXPORT void JNICALL Java_com_metallic_chiaki_vr_XrBridge_nativeSetScreen(JNIEnv *, jobject, jfloat radius, jfloat angle, jfloat height)

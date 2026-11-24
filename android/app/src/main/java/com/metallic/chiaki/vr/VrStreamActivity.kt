@@ -34,6 +34,7 @@ object XrBridge
 	external fun nativeRecenter()
 	external fun nativeSetScreen(radius: Float, angle: Float, height: Float)
 	external fun nativeSetFollow(follow: Boolean, tau: Float)
+	external fun nativeSetAmbient(ambient: Float)
 }
 
 /**
@@ -55,7 +56,7 @@ class VrStreamActivity : Activity()
 	 * Stellschrauben von außen, zum Einstellen am Kabel ohne Neubau:
 	 * adb shell am broadcast -a com.talentsache.viecity.TUNE --es macro "U:120,_:900,O:70"
 	 * Weitere Felder: speed, dead, min, smooth (Kopf-Kamera), radius, angle, height (Leinwand),
-	 * follow 0/1 und tau (Leinwand folgt dem Kopf, Trägheit in Sekunden).
+	 * follow 0/1 und tau (Leinwand folgt dem Kopf, Trägheit in Sekunden), ambient 0 bis 1 (Umgebungslicht).
 	 */
 	private val tuneReceiver = object: BroadcastReceiver() {
 		override fun onReceive(context: Context, intent: Intent)
@@ -82,8 +83,18 @@ class VrStreamActivity : Activity()
 			}
 			intent.getStringExtra("tau")?.toFloatOrNull()?.let {
 				followTau = it
-				XrBridge.nativeSetFollow(t.headLook, followTau)
+				XrBridge.nativeSetFollow(t.headMode == HeadMode.FOLLOW, followTau)
 			}
+			intent.getStringExtra("mode")?.let { name ->
+				HeadMode.values().firstOrNull { it.name.equals(name, true) }?.let {
+					t.headMode = it
+					mapper.resetPeekReference()
+					XrBridge.nativeSetFollow(it == HeadMode.FOLLOW, followTau)
+				}
+			}
+			intent.getStringExtra("peekdead")?.toFloatOrNull()?.let { t.peekDeadDeg = it }
+			intent.getStringExtra("peekfull")?.toFloatOrNull()?.let { t.peekFullDeg = it }
+			intent.getStringExtra("ambient")?.toFloatOrNull()?.let { XrBridge.nativeSetAmbient(it) }
 			intent.getStringExtra("follow")?.let { XrBridge.nativeSetFollow(it == "1", followTau) }
 			Log.i(TAG, "Einstellung: $t Leinwand $screenRadius $screenAngle $screenHeight")
 		}
@@ -91,7 +102,8 @@ class VrStreamActivity : Activity()
 	private var screenRadius = 2.0f
 	private var screenAngle = 2.2f
 	private var screenHeight = 0f
-	private var followTau = 0.10f
+	private var followTau = 0.18f
+	private val settings by lazy { getSharedPreferences("viecity_vr", Context.MODE_PRIVATE) }
 
 	@Volatile private var session: Session? = null
 	@Volatile private var surface: Surface? = null
@@ -109,12 +121,22 @@ class VrStreamActivity : Activity()
 			return
 		}
 
-		mapper.onRecenter = { XrBridge.nativeRecenter() }
+		mapper.onRecenter = {
+			XrBridge.nativeRecenter()
+			mapper.resetPeekReference()
+		}
+		screenAngle = settings.getFloat("screen_angle", screenAngle)
+		mapper.onZoom = { delta ->
+			// Größe der Leinwand als Bogen, zwischen kleinem Fernseher und fast dem ganzen Sichtfeld.
+			screenAngle = (screenAngle * (1f + delta * 0.6f)).coerceIn(1.0f, 2.9f)
+			XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
+			settings.edit().putFloat("screen_angle", screenAngle).apply()
+		}
 		mapper.onNotice = { text ->
 			Log.i(TAG, text)
 			XrBridge.nativeHaptic(0, 0.4f, 60)
 			// Mit Kopf-Kamera folgt die Leinwand dem Kopf, ohne steht sie fest im Raum.
-			XrBridge.nativeSetFollow(mapper.tuning.headLook, followTau)
+			XrBridge.nativeSetFollow(mapper.tuning.headMode == HeadMode.FOLLOW, followTau)
 		}
 
 		try
@@ -134,6 +156,7 @@ class VrStreamActivity : Activity()
 
 		XrBridge.nativeStart(this)
 		xrStarted = true
+		XrBridge.nativeSetScreen(screenRadius, screenAngle, screenHeight)
 		ContextCompat.registerReceiver(this, tuneReceiver, IntentFilter("com.talentsache.viecity.TUNE"), ContextCompat.RECEIVER_EXPORTED)
 	}
 

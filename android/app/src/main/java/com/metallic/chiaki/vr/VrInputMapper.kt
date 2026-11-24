@@ -57,10 +57,21 @@ class XrFrame(private val f: FloatArray)
 	val rightHand get() = yawPitch(7)
 }
 
+/**
+ * FOLLOW: Jede Kopfdrehung dreht die Kamera, die Leinwand läuft mit. Zum Umsehen zu Fuß.
+ * PEEK:   Die Leinwand steht fest. Kleine Kopfbewegungen schauen nur über das Bild,
+ *         erst ein deutlicher Blick zur Seite hält die Kamera dorthin. Zum Fahren.
+ * OFF:    Die Leinwand steht fest, der Kopf steuert nichts.
+ */
+enum class HeadMode(val label: String) { FOLLOW("Kopf-Kamera: mitlaufend"), PEEK("Kopf-Kamera: Blick zur Seite"), OFF("Kopf-Kamera: aus") }
+
 /** Stellschrauben für Kopf-Kamera und Zielen mit der Hand. */
 data class VrTuning(
-	/** Kopf steuert die Kamera. */
-	var headLook: Boolean = true,
+	/** Wie der Kopf die Kamera steuert. */
+	var headMode: HeadMode = HeadMode.FOLLOW,
+	/** Blick-Modus: Kopfdrehung in Grad, die noch nichts bewirkt, und Drehung für vollen Ausschlag. */
+	var peekDeadDeg: Float = 12f,
+	var peekFullDeg: Float = 38f,
 	/** Beim Zielen (linker Trigger) steuert die rechte Hand statt des Kopfs. */
 	var handAim: Boolean = true,
 	/** Drehgeschwindigkeit in Grad je Sekunde, die vollem Stick-Ausschlag entspricht. */
@@ -83,10 +94,11 @@ data class VrTuning(
  *  Menü kurz                -> Options
  *  Menü halten + l. Stick   -> Steuerkreuz
  *  Menü halten + r. Klick   -> Touchpad
+ *  Menü halten + r. Stick   -> Leinwand kleiner/größer (hoch/runter)
  *  Menü halten + A          -> Ego-Sicht-Tastenfolge
  *  Menü halten + B          -> PS-Taste
  *  Menü halten + r. Trigger -> Leinwand neu ausrichten
- *  Menü halten + r. Griff   -> Kopf-Kamera an/aus
+ *  Menü halten + r. Griff   -> Kopf-Kamera wechseln: mitlaufend, Blick zur Seite, aus
  *  Menü halten + l. Griff   -> Share (Create)
  *
  * Die Menü-Taste liegt unter dem linken Daumen, deshalb liegen alle
@@ -96,6 +108,8 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 {
 	var onRecenter: (() -> Unit)? = null
 	var onNotice: ((String) -> Unit)? = null
+	/** Leinwand größer (positiv) oder kleiner, Anteil je Sekunde. */
+	var onZoom: ((Float) -> Unit)? = null
 
 	val macro = ButtonMacro()
 
@@ -149,13 +163,20 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 			ly = 0f
 			if(frame.pressed(XrFrame.BTN_RSTICK)) { buttons = buttons or ControllerState.BUTTON_TOUCHPAD; menuUsedAsModifier = true }
 			if(frame.pressed(XrFrame.BTN_B)) { buttons = buttons or ControllerState.BUTTON_PS; menuUsedAsModifier = true }
+			if(abs(frame.rightY) > 0.4f)
+			{
+				// Stick nach oben schiebt die Leinwand weg (kleiner), nach unten holt sie heran.
+				onZoom?.invoke(-frame.rightY * dt)
+				menuUsedAsModifier = true
+			}
 			val rightTriggerDown = frame.rightTrigger > 0.6f
 			val rightGripDown = frame.rightGrip > 0.6f
 			if(rightTriggerDown && !comboTriggerWasDown) { onRecenter?.invoke(); menuUsedAsModifier = true }
 			if(rightGripDown && !comboGripWasDown)
 			{
-				tuning.headLook = !tuning.headLook
-				onNotice?.invoke(if(tuning.headLook) "Kopf-Kamera an" else "Kopf-Kamera aus")
+				tuning.headMode = HeadMode.values()[(tuning.headMode.ordinal + 1) % HeadMode.values().size]
+				peekReference = null
+				onNotice?.invoke(tuning.headMode.label)
 				menuUsedAsModifier = true
 			}
 			comboTriggerWasDown = rightTriggerDown
@@ -196,8 +217,8 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 		state.leftY = stick(ly)
 
 		val (lookX, lookY) = look(frame, dt)
-		state.rightX = stick(frame.rightX + lookX)
-		state.rightY = stick(-frame.rightY + lookY)
+		state.rightX = stick((if(menu) 0f else frame.rightX) + lookX)
+		state.rightY = stick((if(menu) 0f else -frame.rightY) + lookY)
 		return state
 	}
 
@@ -208,12 +229,21 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 		val hand = if(frame.valid and XrFrame.VALID_RIGHT != 0) frame.rightHand else null
 		val aiming = tuning.handAim && frame.leftTrigger > 0.3f && hand != null
 
+		if(!aiming && tuning.headMode == HeadMode.PEEK && head != null)
+		{
+			lastHead = head
+			lastHand = hand
+			rateX = 0f
+			rateY = 0f
+			return peek(head)
+		}
+
 		val current = if(aiming) hand else head
 		val previous = if(aiming) lastHand else lastHead
 		lastHead = head
 		lastHand = hand
 
-		if(current == null || previous == null || dt <= 0f || (!aiming && !tuning.headLook))
+		if(current == null || previous == null || dt <= 0f || (!aiming && tuning.headMode != HeadMode.FOLLOW))
 		{
 			rateX = 0f
 			rateY = 0f
@@ -232,6 +262,33 @@ class VrInputMapper(val tuning: VrTuning = VrTuning())
 
 		// Kopf hoch = Kamera hoch = Stick nach oben = negativ.
 		return Pair(rateToStick(rateX), -rateToStick(rateY))
+	}
+
+	/** Blickrichtung, bei der die Kamera geradeaus steht. Wird beim Ausrichten neu gesetzt. */
+	private var peekReference: Pair<Float, Float>? = null
+
+	fun resetPeekReference() { peekReference = null }
+
+	/** Blick-Modus: Der Kopf ist ein Steuerknüppel. Abstand von der Mitte hält den Stick. */
+	private fun peek(head: Pair<Float, Float>): Pair<Float, Float>
+	{
+		val reference = peekReference ?: head.also { peekReference = it }
+		var yaw = head.first - reference.first
+		if(yaw > PI) yaw -= (2 * PI).toFloat()
+		if(yaw < -PI) yaw += (2 * PI).toFloat()
+		val toDeg = (180.0 / PI).toFloat()
+		fun curve(deg: Float, dead: Float, full: Float): Float
+		{
+			val a = abs(deg)
+			if(a < dead)
+				return 0f
+			val share = ((a - dead) / (full - dead)).coerceIn(0f, 1f)
+			// Sanft anlaufen, damit der Übergang aus der Ruhezone nicht ruckt.
+			return sign(deg) * (tuning.minStick + (1f - tuning.minStick) * share * share)
+		}
+		val x = curve(yaw * toDeg, tuning.peekDeadDeg, tuning.peekFullDeg)
+		val y = -curve((head.second - reference.second) * toDeg, tuning.peekDeadDeg * 0.8f, tuning.peekFullDeg * 0.7f)
+		return Pair(x, y)
 	}
 
 	private fun rateToStick(degPerSec: Float): Float

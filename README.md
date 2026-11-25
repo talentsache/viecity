@@ -14,6 +14,13 @@
   🎮 PS5 &nbsp;·&nbsp; 🥽 Meta Quest 3 / 3S / 2 / Pro &nbsp;·&nbsp; 🚗 GTA VI &nbsp;·&nbsp; 🍹 no PC, no jailbreak, no DualSense
 </p>
 
+<p align="center">
+  <a href="https://github.com/talentsache/viecity/releases/download/v0.1.0/viecity-vr-demo.mp4">
+    <img src="media/demo.gif" width="720" alt="GTA VI in first person on a Meta Quest with VIE City VR">
+  </a><br>
+  <sub>▶️ Click for the full clip with sound. Recorded inside a Quest 3.</sub>
+</p>
+
 ```text
       *          .              *                 .           *
   .        *          .   _.-~~~~~~~~~-._    *          .
@@ -193,6 +200,6 @@ The **Vie City** name, logo and artwork are not part of that licence. They are �
 
 ## ⚠️ Disclaimer
 
-VIE City VR is a free fan project. It is not affiliated with or endorsed by Sony Interactive Entertainment, Rockstar Games, Take-Two Interactive or Meta. PlayStation, PS5, DualSense, Grand Theft Auto, GTA VI, Vice City, Meta Quest and all related names belong to their owners and are used here only to say what the app works with. The project contains no game files, artwork or code from any of them.
+VIE City VR is a free fan project. It is not affiliated with or endorsed by Sony Interactive Entertainment, Rockstar Games, Take-Two Interactive or Meta. PlayStation, PS5, DualSense, Grand Theft Auto, GTA VI, Vice City, Meta Quest and all related names belong to their owners and are used here only to say what the app works with. The app contains no game files, artwork or code from any of them. The demo clip shows gameplay recorded by the author.
 
 <p align="center">🦩 🌴 🍹 🚗 🌅</p>

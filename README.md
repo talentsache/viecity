@@ -122,7 +122,8 @@ The app raises the phone, puts it away and presses the camera button 150 ms afte
 
 Things to know:
 
-- 💾 The only known way back to the normal camera is loading a save. Save by hand first.
+- 🔁 To get back to the normal camera, switch between Jason and Lucia. That only works while the two are apart, not when they stand next to each other.
+- 💾 If you cannot switch, loading a save brings the normal camera back too. Save by hand first.
 - 🩹 Rockstar can close the glitch with any update. Then the button does nothing.
 - 🧍 Use it in single player. Automated input may break the rules online.
 
